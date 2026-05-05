@@ -1084,12 +1084,6 @@ export function TaskToolsPanel({
               ))}
               <th
                 scope="col"
-                className={`min-w-[14rem] ${TABLE_HEAD_CELL_CLASS}`}
-              >
-                Description
-              </th>
-              <th
-                scope="col"
                 className={`whitespace-nowrap ${TABLE_HEAD_CELL_CLASS}`}
               >
                 Website
@@ -1154,13 +1148,6 @@ export function TaskToolsPanel({
                       />
                     </td>
                   ))}
-                  <td className="max-w-md min-w-[14rem] bg-inherit px-4 py-3 text-gray-600 leading-relaxed">
-                    <span className="text-sm leading-relaxed text-gray-600">
-                      {tool.description?.trim()
-                        ? tool.description
-                        : "—"}
-                    </span>
-                  </td>
                   <td className="bg-inherit whitespace-nowrap px-4 py-3 align-middle text-gray-600">
                     <Link
                       href={tool.website_url}
@@ -1177,7 +1164,7 @@ export function TaskToolsPanel({
             {displayedTools.length === 0 ? (
               <tr>
                 <td
-                  colSpan={visibleColumns.length + 5}
+                  colSpan={visibleColumns.length + 4}
                   className="px-6 py-12 text-center"
                 >
                   <p className="text-sm font-medium text-gray-700">No tools found</p>
