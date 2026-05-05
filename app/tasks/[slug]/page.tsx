@@ -9,6 +9,8 @@ import {
   type VisibleTableColumn,
 } from "./task-tools-panel";
 
+export const revalidate = 60;
+
 type TaskToolRow = {
   tools: ToolForFilter | null;
 };

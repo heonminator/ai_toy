@@ -1125,6 +1125,7 @@ export function TaskToolsPanel({
                             ? `/tools/${tool.slug}?fromTask=${encodeURIComponent(currentTaskSlug)}`
                             : `/tools/${tool.slug}`
                         }
+                        prefetch={true}
                         className="font-semibold tracking-tight text-gray-900 hover:text-indigo-600 hover:underline underline-offset-4"
                       >
                         {tool.name}

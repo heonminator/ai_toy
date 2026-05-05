@@ -5,6 +5,8 @@ import { Card } from "../components/ui/card";
 import { categoryLabel } from "../lib/category-label";
 import { supabase } from "../lib/supabase";
 
+export const revalidate = 60;
+
 type PreviewTool = {
   id: string;
   slug: string;
@@ -197,6 +199,7 @@ export default async function Home() {
               <Link
                 key={task.id}
                 href={`/tasks/${task.slug}`}
+                prefetch={true}
                 className="block"
               >
                 <Card className="h-full p-5 transition duration-200 hover:scale-[1.01] hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md">
@@ -237,6 +240,7 @@ export default async function Home() {
                   >
                     <Link
                       href={`/tools/${tool.slug}?from=home`}
+                      prefetch={true}
                       aria-label={`Open ${tool.name} detail`}
                       className="absolute inset-0 rounded-xl"
                     />

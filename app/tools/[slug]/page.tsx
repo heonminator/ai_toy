@@ -8,6 +8,8 @@ import {
   type ExampleCardItem,
 } from "./example-output-gallery";
 
+export const revalidate = 60;
+
 type ToolRow = {
   id: string;
   slug: string;
@@ -17,7 +19,6 @@ type ToolRow = {
   logo_url: string | null;
   pricing_summary: string | null;
   difficulty_summary: string | null;
-  status: string | null;
 };
 
 type AttributeValueRow = {
@@ -43,21 +44,11 @@ type TaskJoinRow = {
         id: string;
         slug: string;
         name: string;
-        description: string | null;
-        categories: {
-          name: string | null;
-          slug: string | null;
-        } | null;
       }
     | {
         id: string;
         slug: string;
         name: string;
-        description: string | null;
-        categories: {
-          name: string | null;
-          slug: string | null;
-        } | null;
       }[]
     | null;
 };
@@ -152,7 +143,7 @@ export default async function ToolDetailPage({
   const { data: tool, error: toolError } = await supabase
     .from("tools")
     .select(
-      "id, slug, name, description, website_url, logo_url, pricing_summary, difficulty_summary, status",
+      "id, slug, name, description, website_url, logo_url, pricing_summary, difficulty_summary",
     )
     .eq("slug", slug)
     .maybeSingle<ToolRow>();
@@ -197,19 +188,14 @@ export default async function ToolDetailPage({
         tasks (
           id,
           slug,
-          name,
-          description,
-          categories (
-            name,
-            slug
-          )
+          name
         )
       `,
       )
       .eq("tool_id", tool.id),
     supabase
       .from("tool_examples")
-      .select("*")
+      .select("id, title, name, prompt, description, image_url, thumbnail_url, output_url")
       .eq("tool_id", tool.id)
       .order("created_at", { ascending: false })
       .limit(8),
@@ -478,6 +464,7 @@ export default async function ToolDetailPage({
                   <Link
                     key={task.id}
                     href={`/tasks/${task.slug}`}
+                    prefetch={true}
                     className="inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-gray-50 px-3 py-1.5 text-sm font-medium text-gray-700 transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
                   >
                     <span aria-hidden>{useCaseIcon(task.name)}</span>
