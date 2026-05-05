@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { supabase } from "../../../lib/supabase";
+import { trackToolEvent } from "@/lib/track-tool-event";
 import { ExampleOutputGallery, type ExampleCardItem } from "./example-output-gallery";
 
 type ToolRow = {
@@ -16,6 +17,9 @@ type ToolRow = {
   logo_url: string | null;
   pricing_summary: string | null;
   difficulty_summary: string | null;
+  has_api: boolean | null;
+  try_enabled: boolean | null;
+  api_provider: string | null;
 };
 
 type AttributeValueRow = {
@@ -49,6 +53,9 @@ type ToolExampleRow = {
   thumbnail_url?: string | null;
   output_url?: string | null;
 };
+type PreviewResult =
+  | { kind: "image"; title: string; imageUrl: string }
+  | { kind: "text"; title: string; text: string };
 
 function Skeleton({ className = "" }: { className?: string }) {
   return <div className={`animate-pulse rounded-xl bg-gray-100 ${className}`} />;
@@ -124,9 +131,15 @@ export default function ToolDetailClient({
   fromTask?: string;
   from?: string;
 }) {
+  const trackedViewToolIdRef = useRef<string | null>(null);
+  const trySectionRef = useRef<HTMLElement | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tool, setTool] = useState<ToolRow | null>(null);
+  const [isTryExpanded, setIsTryExpanded] = useState(false);
+  const [tryPrompt, setTryPrompt] = useState("");
+  const [previewResult, setPreviewResult] = useState<PreviewResult | null>(null);
+  const [isGeneratingPreview, setIsGeneratingPreview] = useState(false);
   const [attributes, setAttributes] = useState<NormalizedAttributeValueRow[]>([]);
   const [supportedTasks, setSupportedTasks] = useState<{ id: string; slug: string; name: string }[]>([]);
   const [exampleCards, setExampleCards] = useState<ExampleCardItem[]>([]);
@@ -140,7 +153,7 @@ export default function ToolDetailClient({
 
       const { data: toolData, error: toolError } = await supabase
         .from("tools")
-        .select("id, slug, name, description, website_url, logo_url, pricing_summary, difficulty_summary")
+        .select("id, slug, name, description, website_url, logo_url, pricing_summary, difficulty_summary, has_api, try_enabled, api_provider")
         .eq("slug", slug)
         .maybeSingle<ToolRow>();
 
@@ -241,6 +254,22 @@ export default function ToolDetailClient({
     };
   }, [slug, fromTask]);
 
+  useEffect(() => {
+    if (!tool?.id) return;
+    if (trackedViewToolIdRef.current === tool.id) return;
+
+    trackedViewToolIdRef.current = tool.id;
+    void trackToolEvent({
+      toolId: tool.id,
+      eventType: "view_tool",
+      metadata: {
+        slug: tool.slug,
+        fromTask: fromTask ?? null,
+        from: from ?? null,
+      },
+    });
+  }, [tool?.id, tool?.slug, fromTask, from]);
+
   const derived = useMemo(() => {
     const freePlanValue = normalizeYesNo(
       attributes.find((row) => row.attribute_definitions?.name.trim().toLowerCase() === "free plan")?.display_value,
@@ -328,17 +357,94 @@ export default function ToolDetailClient({
 
   const logoSrc = tool.logo_url?.trim() || null;
   const initial = tool.name.trim().charAt(0).toUpperCase() || "?";
-  const backHref = fromTaskRow?.slug ? `/tasks/${fromTaskRow.slug}` : "/";
-  const backLabel = fromTaskRow?.name ? `← ${fromTaskRow.name}` : from === "home" ? "← Home" : "← Home";
+  const backHref = fromTaskRow?.slug ? `/tasks/${fromTaskRow.slug}` : from === "radar" ? "/radar" : "/";
+  const resolvedBackLabel = fromTaskRow?.name
+    ? `← ${fromTaskRow.name}`
+    : from === "radar"
+      ? "← Tool Radar"
+      : "← Home";
   const compareTaskSlug = fromTaskRow?.slug ?? supportedTasks[0]?.slug ?? null;
   const compareHref = compareTaskSlug ? `/tasks/${compareTaskSlug}` : "/";
   const bestForSummary = `Best for: ${tool.difficulty_summary?.trim() || "easy adoption"} with ${tool.pricing_summary?.trim() || "flexible"} pricing.`;
+  const canTry = Boolean(tool.try_enabled);
+
+  async function handleGeneratePreview() {
+    if (!tool) return;
+    setIsGeneratingPreview(true);
+    setPreviewResult(null);
+    try {
+      await trackToolEvent({
+        toolId: tool.id,
+        eventType: "click_try",
+        metadata: {
+          slug: tool.slug,
+          action: "generate_preview",
+          promptLength: tryPrompt.trim().length,
+        },
+      });
+    } catch {
+      // keep UI resilient
+    }
+
+    try {
+      await new Promise((resolve) => {
+        window.setTimeout(resolve, 1000);
+      });
+
+      await trackToolEvent({
+        toolId: tool.id,
+        eventType: "generate",
+        metadata: {
+          slug: tool.slug,
+          promptLength: tryPrompt.trim().length,
+          simulated: true,
+        },
+      });
+    } catch {
+      // keep UI resilient
+    } finally {
+      const normalizedPrompt = tryPrompt.trim();
+      const looksLikeImageRequest =
+        derived.outputTypes.some((x) => x.toLowerCase().includes("image")) ||
+        derived.outputTypes.some((x) => x.toLowerCase().includes("design")) ||
+        derived.outputTypes.some((x) => x.toLowerCase().includes("vector")) ||
+        normalizedPrompt.toLowerCase().includes("image");
+
+      if (looksLikeImageRequest) {
+        const imageLabel = normalizedPrompt
+          ? encodeURIComponent(normalizedPrompt.slice(0, 42))
+          : encodeURIComponent(`${tool.name} Preview`);
+        setPreviewResult({
+          kind: "image",
+          title: "Simulated result",
+          imageUrl: `https://placehold.co/960x540/e5e7eb/475569?text=${imageLabel}`,
+        });
+      } else {
+        setPreviewResult({
+          kind: "text",
+          title: "Simulated result",
+          text: normalizedPrompt
+            ? `This is a simulated text output for: "${normalizedPrompt.slice(0, 200)}${normalizedPrompt.length > 200 ? "..." : ""}"`
+            : "This is a simulated text output. Enter a prompt to see a more specific preview.",
+        });
+      }
+      setIsGeneratingPreview(false);
+    }
+  }
+
+  async function handleCopyPrompt() {
+    try {
+      await navigator.clipboard.writeText(tryPrompt);
+    } catch {
+      // noop
+    }
+  }
 
   return (
     <main className="min-h-screen bg-gray-50">
       <div className="mx-auto max-w-6xl space-y-10 p-8">
         <Link href={backHref} className="inline-block text-sm text-gray-500 underline-offset-4 hover:text-indigo-600 hover:underline">
-          {backLabel}
+          {resolvedBackLabel}
         </Link>
 
         <Card className="p-8">
@@ -367,7 +473,48 @@ export default function ToolDetailClient({
                 <span>Compare with other tools</span>
                 <span aria-hidden>→</span>
               </Link>
-              <a href={tool.website_url} target="_blank" rel="noopener noreferrer" className="inline-flex h-10 w-full items-center justify-center gap-1 whitespace-nowrap rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition duration-200 hover:bg-indigo-700 md:w-auto">
+              {canTry ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsTryExpanded(true);
+                    void trackToolEvent({
+                      toolId: tool.id,
+                      eventType: "click_try",
+                      metadata: {
+                        slug: tool.slug,
+                        action: "hero_scroll_to_try",
+                      },
+                    });
+                    window.setTimeout(() => {
+                      trySectionRef.current?.scrollIntoView({
+                        behavior: "smooth",
+                        block: "start",
+                      });
+                    }, 0);
+                  }}
+                  className="inline-flex h-10 w-full items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-medium text-indigo-700 transition duration-200 hover:border-indigo-300 hover:bg-indigo-100 md:w-auto"
+                >
+                  <span>Try it</span>
+                  <span aria-hidden>↘</span>
+                </button>
+              ) : null}
+              <a
+                href={tool.website_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => {
+                  void trackToolEvent({
+                    toolId: tool.id,
+                    eventType: "visit_tool",
+                    metadata: {
+                      slug: tool.slug,
+                      websiteUrl: tool.website_url,
+                    },
+                  });
+                }}
+                className="inline-flex h-10 w-full items-center justify-center gap-1 whitespace-nowrap rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition duration-200 hover:bg-indigo-700 md:w-auto"
+              >
                 <span>Visit website</span>
                 <span aria-hidden>↗</span>
               </a>
@@ -440,6 +587,130 @@ export default function ToolDetailClient({
             )}
           </div>
         </Card>
+
+        {canTry ? (
+          <section ref={trySectionRef} className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+            <button
+              type="button"
+              onClick={() => {
+                const nextExpanded = !isTryExpanded;
+                setIsTryExpanded(nextExpanded);
+                if (nextExpanded) {
+                  void trackToolEvent({
+                    toolId: tool.id,
+                    eventType: "click_try",
+                    metadata: {
+                      slug: tool.slug,
+                      action: "expand_try_section",
+                    },
+                  });
+                }
+              }}
+              className="flex w-full items-start justify-between gap-4 text-left"
+            >
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-lg font-semibold text-gray-900">Try this tool</h2>
+                  <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-medium text-indigo-700">
+                    Simulated result
+                  </span>
+                </div>
+                <p className="mt-1 text-sm text-gray-600">
+                  Generate a simulated preview using a similar prompt experience.
+                </p>
+              </div>
+              <span className="mt-1 text-sm text-gray-500" aria-hidden>
+                {isTryExpanded ? "▼" : "▶"}
+              </span>
+            </button>
+
+            <div
+              className={`overflow-hidden transition-all duration-200 ${
+                isTryExpanded ? "mt-5 max-h-[900px] opacity-100" : "max-h-0 opacity-0"
+              }`}
+            >
+              <div>
+                <label htmlFor="try-prompt" className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                  Prompt
+                </label>
+                <textarea
+                  id="try-prompt"
+                  value={tryPrompt}
+                  onChange={(e) => setTryPrompt(e.target.value)}
+                  rows={5}
+                  placeholder="Describe the output you want to generate..."
+                  className="mt-2 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm text-gray-700 outline-none transition focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+                />
+              </div>
+
+              <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+                <button
+                  type="button"
+                  onClick={handleGeneratePreview}
+                  disabled={isGeneratingPreview}
+                  className="inline-flex h-10 items-center justify-center rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  {isGeneratingPreview ? "Generating..." : "Generate preview"}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCopyPrompt}
+                  className="inline-flex h-10 items-center justify-center rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
+                >
+                  Copy prompt
+                </button>
+                <a
+                  href={tool.website_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => {
+                    void trackToolEvent({
+                      toolId: tool.id,
+                      eventType: "visit_tool",
+                      metadata: {
+                        slug: tool.slug,
+                        source: "try_section",
+                        websiteUrl: tool.website_url,
+                      },
+                    });
+                  }}
+                  className="inline-flex h-10 items-center justify-center rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
+                >
+                  Visit website
+                </a>
+              </div>
+
+              {previewResult ? (
+                <div className="mt-4 overflow-hidden rounded-xl border border-indigo-100 bg-indigo-50/40">
+                  <div className="flex items-center justify-between border-b border-indigo-100 px-3 py-2">
+                    <p className="text-xs font-medium uppercase tracking-wide text-indigo-600">
+                      {previewResult.title}
+                    </p>
+                    <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-medium text-indigo-700">
+                      Simulated result
+                    </span>
+                  </div>
+                  {previewResult.kind === "image" ? (
+                    <div className="p-3">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={previewResult.imageUrl}
+                        alt="Simulated result"
+                        className="aspect-video w-full rounded-lg border border-indigo-100 object-cover"
+                      />
+                    </div>
+                  ) : (
+                    <div className="p-3">
+                      <p className="rounded-lg border border-indigo-100 bg-white px-3 py-2 text-sm text-gray-700">
+                        {previewResult.text}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              ) : null}
+            </div>
+          </section>
+        ) : null}
 
         <Card className="p-6">
           <h2 className="text-lg font-semibold text-gray-900">Example Outputs</h2>

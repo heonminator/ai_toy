@@ -144,6 +144,15 @@ export default async function Home() {
     <main className="min-h-screen bg-gray-50">
       <div className="mx-auto max-w-6xl space-y-10 px-8 py-10">
         <section className="rounded-2xl border border-indigo-100 bg-gradient-to-b from-indigo-50 to-white p-10 shadow-sm">
+          <div className="flex justify-end">
+            <Link
+              href="/radar"
+              prefetch={true}
+              className="inline-flex items-center rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
+            >
+              Tool Radar
+            </Link>
+          </div>
           <Badge variant="boolean" tone="yes">Compare AI Tools</Badge>
           <h1 className="mt-4 max-w-3xl text-4xl font-semibold tracking-tight text-gray-900">
             Find the best AI tools for your task — instantly.
